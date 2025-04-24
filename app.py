@@ -49,15 +49,18 @@ def predict_session():
         segmented = segment_gsr_data(clean, fs=256, window_sec=10.0, overlap_sec=5.0)
         features = extract_features_matrix_optimized(segmented, fs=256)
 
+        # Prepare [1, 27] input tensor
+        X = features.drop(columns=['Stress']).values.astype(np.float32)
+        if X.shape[0] > 1:
+            X = X.mean(axis=0).reshape(1, -1)
+
         # Run ONNX prediction
         input_name = session.get_inputs()[0].name
-        X = features.values.astype(np.float32)
         outputs = session.run(None, {input_name: X})
-        probs = [float(p[1]) for p in outputs[0]]  # Class 1 = stress
+        prob = float(outputs[0][0][1])  # Class 1 = stress
 
         return jsonify({
-            'mean_stress_probability': sum(probs) / len(probs),
-            'all_segment_probabilities': probs
+            'stress_probability': prob
         })
 
     except Exception as e:
