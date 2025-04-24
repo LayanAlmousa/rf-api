@@ -6,7 +6,7 @@ import numpy as np
 
 # Import your preprocessing pipeline
 from utils import (
-    preprocess_gsr_dataset,
+    preprocess_gsr_signal,
     segment_gsr_data,
     extract_features_matrix_optimized
 )
