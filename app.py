@@ -24,20 +24,17 @@ def predict_session():
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
 
-        # Read uploaded CSV
+        # Read uploaded CSV (tab-separated with a header skip)
         file = request.files['file']
         df = pd.read_csv(file, sep="\t", skiprows=1)
-
 
         # Use only numeric GSR data from the resistance column
         gsr_col = 'Shimmer_1875_GSR_Skin_Resistance_CAL'
         if gsr_col not in df.columns:
-            return jsonify({'error': f'Expected column "{gsr_col}" not found'}), 400
+            return jsonify({'error': f'Expected column \"{gsr_col}\" not found'}), 400
 
-        gsr_raw = df[gsr_col]
-        gsr_filtered = gsr_raw[gsr_raw.apply(lambda x: isinstance(x, (int, float)))]
-        gsr_series = pd.Series(gsr_filtered.dropna().values)
-
+        # Convert strings to float safely
+        gsr_series = pd.to_numeric(df[gsr_col], errors='coerce').dropna()
         if gsr_series.empty:
             return jsonify({'error': 'No valid numeric GSR values found'}), 400
 
