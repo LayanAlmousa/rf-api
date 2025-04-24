@@ -18,9 +18,13 @@ def preprocess_gsr_signal(gsr_data: pd.DataFrame, fs: float) -> dict:
     Returns:
         dict: {'GSR_Data': ..., 'Tonic_Data': ..., 'Phasic_Data': ...}
     """
+    print("DEBUG: Starting preprocess_gsr_signal function.")
+    
     nyq = fs / 2.0
     b_t, a_t = butter(2, 0.05 / nyq, btype='low')
     b_p, a_p = butter(2, [0.5 / nyq, 3.0 / nyq], btype='band')
+
+    print(f"DEBUG: GSR data before cleaning: {gsr_data.head()}")
 
     x = np.ravel(gsr_data.values)
     x = x - x.mean()
@@ -28,6 +32,10 @@ def preprocess_gsr_signal(gsr_data: pd.DataFrame, fs: float) -> dict:
     tonic = filtfilt(b_t, a_t, x)
     phasic = filtfilt(b_p, a_p, x - tonic)
     phasic = detrend(phasic)
+
+    print(f"DEBUG: Tonic and Phasic data after filtering.")
+    print(f"DEBUG: Tonic data: {tonic[:5]}")
+    print(f"DEBUG: Phasic data: {phasic[:5]}")
 
     return {
         'GSR_Data': pd.Series(x),
@@ -45,12 +53,16 @@ def segment_single_gsr_segment(preprocessed: dict, fs: float,
     Returns:
         pd.DataFrame: with columns ['Raw', 'Tonic', 'Phasic', 'Stress']
     """
+    print("DEBUG: Starting segment_single_gsr_segment function.")
+
     window_samples = int(window_sec * fs)
     step_samples = int((window_sec - overlap_sec) * fs)
 
     x_raw = preprocessed['GSR_Data'].values
     x_tonic = preprocessed['Tonic_Data'].values
     x_phasic = preprocessed['Phasic_Data'].values
+
+    print(f"DEBUG: Segmentation parameters: window_samples={window_samples}, step_samples={step_samples}")
 
     rows = []
     start = 0
@@ -69,6 +81,11 @@ def segment_single_gsr_segment(preprocessed: dict, fs: float,
             seg_phasic = x_phasic[n - window_samples:n]
             start = n
 
+        print(f"DEBUG: Segment {start // window_samples + 1}:")
+        print(f"DEBUG: Raw segment: {seg_raw[:5]}")
+        print(f"DEBUG: Tonic segment: {seg_tonic[:5]}")
+        print(f"DEBUG: Phasic segment: {seg_phasic[:5]}")
+
         rows.append({
             'Raw': seg_raw,
             'Tonic': seg_tonic,
@@ -78,7 +95,9 @@ def segment_single_gsr_segment(preprocessed: dict, fs: float,
 
         start += step_samples
 
-    return pd.DataFrame(rows)
+    df_segmented = pd.DataFrame(rows)
+    print(f"DEBUG: Segmentation complete. Number of segments: {len(df_segmented)}")
+    return df_segmented
 
 
 def extract_features_matrix_optimized(segmented_data: pd.DataFrame,
@@ -87,16 +106,23 @@ def extract_features_matrix_optimized(segmented_data: pd.DataFrame,
     """
     Feature extraction for one segmented GSR session.
     """
+    print("DEBUG: Starting feature extraction function.")
+
     raw   = np.stack(segmented_data['Raw'].values)
     tonic = np.stack(segmented_data['Tonic'].values)
     phasic= np.stack(segmented_data['Phasic'].values)
     labels= (segmented_data['Stress'] == 'yes').astype(int).values
+
+    print("DEBUG: Shape of raw, tonic, and phasic data:")
+    print(f"DEBUG: raw.shape = {raw.shape}, tonic.shape = {tonic.shape}, phasic.shape = {phasic.shape}")
 
     n_windows, N = raw.shape
     t = np.arange(N) / fs
     t_mean = t.mean()
     denom = ((t - t_mean) ** 2).sum()
 
+    print(f"DEBUG: Computing time-domain features.")
+    
     def time_features(x):
         mean = x.mean(axis=1)
         std  = x.std(axis=1)
@@ -122,6 +148,7 @@ def extract_features_matrix_optimized(segmented_data: pd.DataFrame,
     p_norm = psd_ph / psd_ph.sum(axis=1, keepdims=True)
     spec_ent = sp_entropy(p_norm, base=2, axis=1)
 
+    print(f"DEBUG: Extracting per-window sample entropy and event features.")
     def phasic_events(i):
         x = phasic[i]
         se = ap_sampen(x)
@@ -135,9 +162,7 @@ def extract_features_matrix_optimized(segmented_data: pd.DataFrame,
         mp_wid = widths.mean() if widths.size > 0 else 0.0
         return se, n_peaks, mp_amp, mp_wid
 
-    results = Parallel(n_jobs=n_jobs)(
-        delayed(phasic_events)(i) for i in range(n_windows)
-    )
+    results = Parallel(n_jobs=n_jobs)(delayed(phasic_events)(i) for i in range(n_windows))
     sampens, n_peaks, mean_amps, mean_widths = zip(*results)
 
     df = pd.DataFrame({
@@ -156,4 +181,5 @@ def extract_features_matrix_optimized(segmented_data: pd.DataFrame,
         'Phasic_mean_peak_width': mean_widths
     })
 
+    print(f"DEBUG: Feature extraction complete. Extracted {len(df)} features.")
     return df
