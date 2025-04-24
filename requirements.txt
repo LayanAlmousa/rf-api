@@ -2,3 +2,8 @@ flask
 flask-cors
 onnxruntime
 numpy
+pandas
+scipy
+scikit-learn
+antropy
+joblib
