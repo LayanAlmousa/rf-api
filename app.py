@@ -44,8 +44,8 @@ def predict_session():
         }])
 
         # Preprocess + feature extraction
-        clean = preprocess_gsr_dataset(session_df, fs=256)
-        segmented = segment_gsr_data(clean, fs=256, window_sec=10.0, overlap_sec=5.0)
+        clean = preprocess_gsr_signal(session_df, fs=256)
+        segmented = segment_single_gsr_segment(clean, fs=256, window_sec=10.0, overlap_sec=5.0)
         features = extract_features_matrix_optimized(segmented, fs=256)
 
         # Prepare [1, 27] input tensor
