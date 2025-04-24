@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 
-def preprocess_single_gsr_segment(gsr_data: pd.DataFrame, fs: float) -> dict:
+def preprocess_gsr_signal(gsr_data: pd.DataFrame, fs: float) -> dict:
     """
     Decomposes a single GSR segment into tonic and phasic components.
 
