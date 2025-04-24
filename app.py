@@ -30,12 +30,17 @@ def predict_session():
         # Use only numeric GSR data from the resistance column
         gsr_col = 'Shimmer_1875_GSR_Skin_Resistance_CAL'
         if gsr_col not in df.columns:
-            return jsonify({'error': f'Expected column \"{gsr_col}\" not found'}), 400
+            return jsonify({'error': f'Expected column "{gsr_col}" not found'}), 400
 
-        # Convert strings to float safely
-        gsr_series = pd.to_numeric(df[gsr_col], errors='coerce').dropna()
-        if gsr_series.empty:
+        # Convert strings to float safely, non-numeric values become NaN
+        gsr_series = pd.to_numeric(df[gsr_col], errors='coerce')
+
+        # Check if the series contains only valid numeric data
+        if gsr_series.isnull().sum() == len(gsr_series):
             return jsonify({'error': 'No valid numeric GSR values found'}), 400
+
+        # Drop NaN values
+        gsr_series = gsr_series.dropna()
 
         # Match training format: one row with 'GSR_Data'
         session_df = pd.DataFrame([{
@@ -48,16 +53,16 @@ def predict_session():
         segmented = segment_single_gsr_segment(clean, fs=256, window_sec=10.0, overlap_sec=5.0)
         features = extract_features_matrix_optimized(segmented, fs=256)
 
-        # Prepare [1, 27] input tensor
+        # Prepare [1, 27] input tensor (flatten if needed)
         X = features.drop(columns=['Stress']).values.astype(np.float32)
         if X.shape[0] > 1:
-            X = X.mean(axis=0).reshape(1, -1)
+            X = X.mean(axis=0).reshape(1, -1)  # Use average if more than 1 sample
 
-               # Run ONNX prediction
+        # Run ONNX prediction
         input_name = session.get_inputs()[0].name
         outputs = session.run(None, {input_name: X})
 
-        # Get classification result (0 or 1)
+        # Get classification result (0 or 1) based on the first class probability
         classification = 1 if outputs[0][0][1] > 0.5 else 0
 
         return jsonify({
