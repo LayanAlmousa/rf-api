@@ -4,10 +4,9 @@ import onnxruntime as ort
 import pandas as pd
 import numpy as np
 
-# Import your preprocessing pipeline
 from utils import (
     preprocess_gsr_signal,
-    segment_gsr_data,
+    segment_single_gsr_segment,
     extract_features_matrix_optimized
 )
 
