@@ -1,9 +1,11 @@
 services:
   - type: web
-    name: onnx-api
+    name: rf-api
     env: python
-    buildCommand: ""
+    plan: free
+    buildCommand: pip install -r requirements.txt
     startCommand: python app.py
+    autoDeploy: true
     envVars:
       - key: FLASK_ENV
         value: production
