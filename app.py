@@ -45,11 +45,11 @@ def predict_session():
             return jsonify({'error': 'No valid numeric GSR values found'}), 400
 
         # Match training format: one row with 'GSR_Data'
-        session_df = pd.DataFrame({
+        session_df = pd.DataFrame([{
             'GSR_Data': gsr_series
-        })
+        }])
 
-        # Debugging: log the session DataFrame (without 'Stress')
+        # Debugging: log the session DataFrame (no Stress column)
         print("DEBUG: Session DataFrame (no Stress column):", session_df.head())
 
         # Preprocess + feature extraction
@@ -76,6 +76,9 @@ def predict_session():
 
         if X.shape[0] > 1:
             X = X.mean(axis=0).reshape(1, -1)
+
+        # Debugging: log the final input features shape
+        print("DEBUG: Final input features shape:", X.shape)
 
         # Run ONNX prediction
         input_name = session.get_inputs()[0].name
