@@ -54,13 +54,15 @@ def predict_session():
         if X.shape[0] > 1:
             X = X.mean(axis=0).reshape(1, -1)
 
-        # Run ONNX prediction
+               # Run ONNX prediction
         input_name = session.get_inputs()[0].name
         outputs = session.run(None, {input_name: X})
-        prob = float(outputs[0][0][1])  # Class 1 = stress
+
+        # Get classification result (0 or 1)
+        classification = 1 if outputs[0][0][1] > 0.5 else 0
 
         return jsonify({
-            'stress_probability': prob
+            'classification': classification
         })
 
     except Exception as e:
