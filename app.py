@@ -26,7 +26,8 @@ def predict_session():
 
         # Read uploaded CSV
         file = request.files['file']
-        df = pd.read_csv(file)
+        df = pd.read_csv(file, sep="\t", skiprows=1)
+
 
         # Use only numeric GSR data from the resistance column
         gsr_col = 'Shimmer_1875_GSR_Skin_Resistance_CAL'
