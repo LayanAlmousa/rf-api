@@ -27,41 +27,53 @@ def predict_session():
         file = request.files['file']
         df = pd.read_csv(file, sep="\t", skiprows=1)
 
-        # Log the DataFrame to see the raw data
-        print("DEBUG: DataFrame loaded:")
-        print(df.head())
+        # Debugging: log the first few rows of the dataframe
+        print("DEBUG: DataFrame loaded:", df.head())
 
-        # Ensure we clean non-numeric columns before processing
+        # Use only numeric GSR data from the resistance column
         gsr_col = 'Shimmer_1875_GSR_Skin_Resistance_CAL'
         if gsr_col not in df.columns:
             return jsonify({'error': f'Expected column \"{gsr_col}\" not found'}), 400
 
-        # Convert strings to float safely, logging the cleaned GSR data
-        df[gsr_col] = pd.to_numeric(df[gsr_col], errors='coerce')
-        print(f"DEBUG: Cleaned GSR Data: {df[gsr_col].head()}")
+        # Convert strings to float safely
+        gsr_series = pd.to_numeric(df[gsr_col], errors='coerce').dropna()
 
-        gsr_series = df[gsr_col].dropna()
+        # Debugging: log the cleaned GSR data
+        print("DEBUG: Cleaned GSR data:", gsr_series.head())
 
         if gsr_series.empty:
             return jsonify({'error': 'No valid numeric GSR values found'}), 400
 
         # Match training format: one row with 'GSR_Data'
-        session_df = pd.DataFrame([{
-            'GSR_Data': gsr_series,
-            'Stress': 'unknown'
-        }])
+        session_df = pd.DataFrame({
+            'GSR_Data': gsr_series
+        })
 
-        print(f"DEBUG: Session DataFrame: {session_df.head()}")
+        # Debugging: log the session DataFrame (without 'Stress')
+        print("DEBUG: Session DataFrame (no Stress column):", session_df.head())
 
         # Preprocess + feature extraction
         clean = preprocess_gsr_signal(session_df, fs=256)
+        
+        # Debugging: log the preprocessed signal
+        print("DEBUG: Preprocessed data:", clean)
+
         segmented = segment_single_gsr_segment(clean, fs=256, window_sec=10.0, overlap_sec=5.0)
+        
+        # Debugging: log the segmented data
+        print("DEBUG: Segmented data:", segmented.head())
+
         features = extract_features_matrix_optimized(segmented, fs=256)
+        
+        # Debugging: log the features before passing to the model
+        print("DEBUG: Extracted features:", features.head())
 
-        print(f"DEBUG: Features extracted: {features.head()}")
+        # Prepare [1, 27] input tensor (excluding 'Stress' column)
+        X = features.drop(columns=['Stress'], errors='ignore').values.astype(np.float32)
 
-        # Prepare [1, 27] input tensor
-        X = features.drop(columns=['Stress']).values.astype(np.float32)
+        # Debugging: log the shape of the input features
+        print("DEBUG: Input features shape:", X.shape)
+
         if X.shape[0] > 1:
             X = X.mean(axis=0).reshape(1, -1)
 
