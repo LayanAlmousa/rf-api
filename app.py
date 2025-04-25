@@ -6,8 +6,8 @@ import numpy as np
 import logging
 
 from utils import (
-    preprocess_gsr_signal,
-    segment_single_gsr_segment,
+    preprocess_gsr_dataset,  # Adjusted method name
+    segment_gsr_data,        # Adjusted method name
     extract_features_matrix_optimized
 )
 
@@ -58,13 +58,15 @@ def predict_session():
         file = request.files['file']
         df = pd.read_csv(file, sep="\t", header=2)
 
-        df.columns = ['Timestamp', 'Range', 'Conductance', 'Resistance', 'Extra']
+        # Clean and rename the columns
+        df.columns = df.columns.str.strip()
+        df.rename(columns={'uS': 'GSR'}, inplace=True)
     
         # Log the first few rows of the dataframe
         logger.debug(f"DataFrame loaded: {df.head()}")
 
-        # Use only numeric GSR data from the resistance column
-        gsr_col = 'Resistance'
+        # Use only numeric GSR data from the 'GSR' column
+        gsr_col = 'GSR'
         if gsr_col not in df.columns:
             logger.debug(f"Expected column {gsr_col} not found.")
             return jsonify({'error': f'Expected column "{gsr_col}" not found'}), 400
@@ -79,43 +81,39 @@ def predict_session():
             logger.debug("No valid numeric GSR values found after cleaning.")
             return jsonify({'error': 'No valid numeric GSR values found'}), 400
 
-        # Match training format: one row with 'GSR_Data'
-        session_df = gsr_series.copy()
+        # Create a dummy DataFrame for input
+        raw_df = pd.DataFrame({
+            'Subject': ['Sample'],
+            'GSR_Data': [gsr_series],
+            'Label': ['unknown']
+        })
 
-        # Log the session DataFrame (no Stress column)
-        logger.debug(f"Session DataFrame (no Stress column): {session_df.head()}")
-
-        # Preprocess + feature extraction
+        # Preprocess (tonic & phasic decomposition)
         logger.debug("Starting preprocessing of GSR signal.")
-        clean = preprocess_gsr_signal(session_df, fs=256)
+        clean_data = preprocess_gsr_dataset(raw_df, fs=256)
         
         # Log the preprocessed signal
-        logger.debug(f"Preprocessed data: {clean}")
+        logger.debug(f"Preprocessed data: {clean_data.head()}")
 
+        # Segmentation of the GSR signal into 10-second windows with 5-second overlap
         logger.debug("Starting segmentation of the GSR signal.")
-        segmented = segment_single_gsr_segment(clean, fs=256, window_sec=10.0, overlap_sec=5.0)
+        segmented = segment_gsr_data(clean_data, fs=256, window_sec=10.0, overlap_sec=5.0)
         
         # Log the segmented data
         logger.debug(f"Segmented data: {segmented.head()}")
 
+        # Feature extraction
         logger.debug("Starting feature extraction.")
         features = extract_features_matrix_optimized(segmented, fs=256)
         
-        # Log the features before passing to the model
+        # Log the extracted features before passing to the model
         logger.debug(f"Extracted features: {features.head()}")
 
-        # Prepare the input tensor (excluding the 'Stress' column)
+        # Prepare the input tensor (excluding 'Stress' column)
         X = features.drop(columns=['Stress']).values.astype(np.float32)
 
         # Log the shape of the input features
         logger.debug(f"Input features shape: {X.shape}")
-
-        # Ensure the tensor has the correct shape (1, 21 or 27 depending on feature count)
-        #if X.shape[0] > 1:
-         #   X = X.mean(axis=0).reshape(1, -1)  # Taking the mean if there are multiple rows
-
-        # Log the final input features shape
-        logger.debug(f"Final input features shape: {X.shape}")
 
         # Run ONNX prediction
         input_name = session.get_inputs()[0].name
