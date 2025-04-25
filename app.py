@@ -111,8 +111,8 @@ def predict_session():
         logger.debug(f"Input features shape: {X.shape}")
 
         # Ensure the tensor has the correct shape (1, 21 or 27 depending on feature count)
-        if X.shape[0] > 1:
-            X = X.mean(axis=0).reshape(1, -1)  # Taking the mean if there are multiple rows
+        #if X.shape[0] > 1:
+         #   X = X.mean(axis=0).reshape(1, -1)  # Taking the mean if there are multiple rows
 
         # Log the final input features shape
         logger.debug(f"Final input features shape: {X.shape}")
