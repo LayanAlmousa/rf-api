@@ -56,7 +56,7 @@ def predict_session():
 
         # Read uploaded CSV (tab-separated with a header skip)
         file = request.files['file']
-        df = pd.read_csv(file, sep="\t", skiprows=1)
+        df = pd.read_csv(file, sep="\t", header=2)
 
         # Log the first few rows of the dataframe
         logger.debug(f"DataFrame loaded: {df.head()}")
