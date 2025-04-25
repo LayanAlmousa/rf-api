@@ -111,6 +111,8 @@ def predict_session():
         # Log the shape of the input features
         logger.debug(f"Input features shape: {X.shape}")
 
+        # Prepare [1, 27] input tensor
+        X = features.drop(columns=['Stress']).values.astype(np.float32)
         if X.shape[0] > 1:
             X = X.mean(axis=0).reshape(1, -1)
 
