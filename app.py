@@ -35,7 +35,6 @@ def clean_gsr_data(df: pd.DataFrame, gsr_col: str) -> pd.Series:
     # Convert strings to float safely, using `errors='coerce'` to turn invalid values into NaNs
     gsr_series = pd.to_numeric(df[gsr_col], errors='coerce')
 
-    
     # Log the state after conversion
     logger.debug(f"GSR data after conversion: {gsr_series.head()}")
 
@@ -105,16 +104,15 @@ def predict_session():
         # Log the features before passing to the model
         logger.debug(f"Extracted features: {features.head()}")
 
-        # Prepare [1, 27] input tensor (excluding 'Stress' column)
-        X = features.drop(columns=['Stress'], errors='ignore').values.astype(np.float32)
+        # Prepare the input tensor (excluding the 'Stress' column)
+        X = features.drop(columns=['Stress']).values.astype(np.float32)
 
         # Log the shape of the input features
         logger.debug(f"Input features shape: {X.shape}")
 
-        # Prepare [1, 27] input tensor
-        X = features.drop(columns=['Stress']).values.astype(np.float32)
+        # Ensure the tensor has the correct shape (1, 21 or 27 depending on feature count)
         if X.shape[0] > 1:
-            X = X.mean(axis=0).reshape(1, -1)
+            X = X.mean(axis=0).reshape(1, -1)  # Taking the mean if there are multiple rows
 
         # Log the final input features shape
         logger.debug(f"Final input features shape: {X.shape}")
@@ -129,9 +127,7 @@ def predict_session():
 
         logger.debug(f"Classification result: {classification}")
 
-        return jsonify({
-            'classification': classification
-        })
+        return jsonify({'classification': classification})
 
     except Exception as e:
         logger.debug(f"Error occurred: {str(e)}")
