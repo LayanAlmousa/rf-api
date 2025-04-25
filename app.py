@@ -3,9 +3,7 @@ from flask_cors import CORS
 import onnxruntime as ort
 import pandas as pd
 import numpy as np
-import logging
 
-# Import preprocessing and feature extraction functions
 from utils import (
     preprocess_gsr_signal,
     segment_single_gsr_segment,
@@ -29,63 +27,63 @@ def predict_session():
         file = request.files['file']
         df = pd.read_csv(file, sep="\t", skiprows=1)
 
-        # Debugging: log the first few rows of the dataframe
-        logging.debug(f"DataFrame loaded: {df.head()}")
+        # Log the first few rows of the dataframe
+        print("DEBUG: DataFrame loaded:", df.head())
 
         # Use only numeric GSR data from the resistance column
         gsr_col = 'Shimmer_1875_GSR_Skin_Resistance_CAL'
         if gsr_col not in df.columns:
-            return jsonify({'error': f'Expected column \"{gsr_col}\" not found'}), 400
+            return jsonify({'error': f'Expected column "{gsr_col}" not found'}), 400
 
-        # Convert strings to float safely
-        gsr_series = pd.to_numeric(df[gsr_col], errors='coerce').dropna()
+        # Convert strings to float safely and drop rows with NaN values
+        df[gsr_col] = pd.to_numeric(df[gsr_col], errors='coerce')
+        df_clean = df.dropna(subset=[gsr_col])  # Drop rows where GSR column is NaN
 
-        # Debugging: log the cleaned GSR data
-        logging.debug(f"Cleaned GSR data: {gsr_series.head()}")
+        # Log the cleaned GSR data
+        print("DEBUG: Cleaned GSR data:", df_clean[gsr_col].head())
 
-        if gsr_series.empty:
+        # Log the value of index 0 in the cleaned GSR column
+        if not df_clean.empty:
+            print("DEBUG: Value of index 0 in cleaned GSR data:", df_clean.iloc[0][gsr_col])
+
+        if df_clean.empty:
             return jsonify({'error': 'No valid numeric GSR values found'}), 400
 
-        # Create a session DataFrame with the 'GSR_Data' column
-        session_df = pd.DataFrame([{
-            'GSR_Data': gsr_series
-        }])
+        # Match training format: one row with 'GSR_Data'
+        gsr_series = df_clean[gsr_col]
 
-        # Debugging: log the session DataFrame (no Stress column)
-        logging.debug(f"Session DataFrame (no Stress column): {session_df.head()}")
+        # Log the session DataFrame (no Stress column)
+        session_df = pd.DataFrame([{'GSR_Data': gsr_series}])
 
-        # Preprocess GSR signal (apply the preprocessing function)
-        logging.debug("Preprocessing GSR signal")
+        print("DEBUG: Session DataFrame (no Stress column):", session_df.head())
+
+        # Preprocess + feature extraction
         clean = preprocess_gsr_signal(session_df, fs=256)
         
-        # Debugging: log the preprocessed signal
-        logging.debug(f"Preprocessed data: {clean}")
+        # Log the preprocessed signal
+        print("DEBUG: Preprocessed data:", clean)
 
-        # Segment the preprocessed GSR signal
-        logging.debug("Segmenting GSR signal")
         segmented = segment_single_gsr_segment(clean, fs=256, window_sec=10.0, overlap_sec=5.0)
         
-        # Debugging: log the segmented data
-        logging.debug(f"Segmented data: {segmented.head()}")
+        # Log the segmented data
+        print("DEBUG: Segmented data:", segmented.head())
 
-        # Feature extraction
-        logging.debug("Extracting features from GSR segments")
         features = extract_features_matrix_optimized(segmented, fs=256)
         
-        # Debugging: log the features before passing to the model
-        logging.debug(f"Extracted features: {features.head()}")
+        # Log the features before passing to the model
+        print("DEBUG: Extracted features:", features.head())
 
         # Prepare [1, 27] input tensor (excluding 'Stress' column)
         X = features.drop(columns=['Stress'], errors='ignore').values.astype(np.float32)
 
-        # Debugging: log the shape of the input features
-        logging.debug(f"Input features shape: {X.shape}")
+        # Log the shape of the input features
+        print("DEBUG: Input features shape:", X.shape)
 
         if X.shape[0] > 1:
             X = X.mean(axis=0).reshape(1, -1)
 
-        # Debugging: log the final input features shape
-        logging.debug(f"Final input features shape: {X.shape}")
+        # Log the final input features shape
+        print("DEBUG: Final input features shape:", X.shape)
 
         # Run ONNX prediction
         input_name = session.get_inputs()[0].name
@@ -99,7 +97,6 @@ def predict_session():
         })
 
     except Exception as e:
-        logging.error(f"Error occurred: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 # For Render
