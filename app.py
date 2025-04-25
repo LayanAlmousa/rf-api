@@ -1,9 +1,9 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import onnxruntime as ort
 import pandas as pd
 import numpy as np
 import logging
+import joblib  # Used to load the .pkl model
 
 from utils import (
     preprocess_gsr_dataset,  # Adjusted method name
@@ -18,33 +18,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# Load the ONNX model
-session = ort.InferenceSession("random_forest.onnx")
+# Load the .pkl model (instead of ONNX)
+model = joblib.load('random_forest.pkl')  # Replace this with the path to your .pkl file
 
-def clean_gsr_data(df: pd.DataFrame, gsr_col: str) -> pd.Series:
-    """
-    Cleans the GSR data by removing non-numeric values from the specified column.
-    
-    Args:
-        df (pd.DataFrame): The input DataFrame containing GSR data.
-        gsr_col (str): The name of the column containing the GSR data.
-        
-    Returns:
-        pd.Series: Cleaned GSR data (only numeric values).
-    """
-    # Convert strings to float safely, using `errors='coerce'` to turn invalid values into NaNs
-    gsr_series = pd.to_numeric(df[gsr_col], errors='coerce')
-
-    # Log the state after conversion
-    logger.debug(f"GSR data after conversion: {gsr_series.head()}")
-
-    # Drop any NaN values
-    gsr_series = gsr_series.dropna()
-    
-    # Log the cleaned GSR data after dropping NaN values
-    logger.debug(f"Cleaned GSR data after dropping NaN: {gsr_series.head()}")
-    
-    return gsr_series
 
 @app.route('/predict-session', methods=['POST'])
 def predict_session():
@@ -71,20 +47,12 @@ def predict_session():
             logger.debug(f"Expected column {gsr_col} not found.")
             return jsonify({'error': f'Expected column "{gsr_col}" not found'}), 400
 
-        # Clean the GSR data
-        gsr_series = clean_gsr_data(df, gsr_col)
-
-        # Log the cleaned GSR data
-        logger.debug(f"Cleaned GSR data: {gsr_series.head()}")
-
-        if gsr_series.empty:
-            logger.debug("No valid numeric GSR values found after cleaning.")
-            return jsonify({'error': 'No valid numeric GSR values found'}), 400
-
+        gsr_signal = df['GSR'].values
+        
         # Create a dummy DataFrame for input
         raw_df = pd.DataFrame({
             'Subject': ['Sample'],
-            'GSR_Data': [gsr_series],
+            'GSR_Data': [pd.Series(gsr_signal)],
             'Label': ['unknown']
         })
 
@@ -110,22 +78,21 @@ def predict_session():
         logger.debug(f"Extracted features: {features.head()}")
 
         # Prepare the input tensor (excluding 'Stress' column)
-        X = features.drop(columns=['Stress']).values.astype(np.float32)
-
+        X = features.drop(columns=['Stress'])
+        
         # Log the shape of the input features
         logger.debug(f"Input features shape: {X.shape}")
 
-        # Run ONNX prediction
-        input_name = session.get_inputs()[0].name
-        logger.debug(f"Running ONNX prediction with input: {input_name}")
-        outputs = session.run(None, {input_name: X})
+        # Run prediction using the .pkl model
+        preds = model.predict(X)  # Use the model's `predict` method
+        probs = model.predict_proba(X)[:, 1]  # Probability of stress
 
         # Get classification result (0 or 1)
-        classification = 1 if outputs[0][0][1] > 0.5 else 0
+        classification = 1 if probs[0] > 0.5 else 0  # Use the threshold for stress classification
 
         logger.debug(f"Classification result: {classification}")
 
-        return jsonify({'classification': classification})
+        return jsonify({'classification': classification, 'probability': probs[0]})
 
     except Exception as e:
         logger.debug(f"Error occurred: {str(e)}")
