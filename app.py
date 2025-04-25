@@ -74,16 +74,14 @@ def predict_session():
         # gsr_series = clean_gsr_data(df, gsr_col)
 
         # Log the cleaned GSR data
-        logger.debug(f"Cleaned GSR data: {gsr_series.head()}")
+        logger.debug(f"Cleaned GSR data: {df.head()}")
 
-        if gsr_series.empty:
+        if df.empty:
             logger.debug("No valid numeric GSR values found after cleaning.")
             return jsonify({'error': 'No valid numeric GSR values found'}), 400
 
         # Match training format: one row with 'GSR_Data'
-        session_df = pd.DataFrame([{
-            'GSR_Data': gsr_series
-        }])
+        session_df = df.copy()
 
         # Log the session DataFrame (no Stress column)
         logger.debug(f"Session DataFrame (no Stress column): {session_df.head()}")
