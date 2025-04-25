@@ -34,6 +34,7 @@ def clean_gsr_data(df: pd.DataFrame, gsr_col: str) -> pd.Series:
     """
     # Convert strings to float safely, using `errors='coerce'` to turn invalid values into NaNs
     gsr_series = pd.to_numeric(df[gsr_col], errors='coerce')
+
     
     # Log the state after conversion
     logger.debug(f"GSR data after conversion: {gsr_series.head()}")
@@ -58,6 +59,8 @@ def predict_session():
         file = request.files['file']
         df = pd.read_csv(file, sep="\t", header=2)
 
+        gsr_series.columns = ['Timestamp', 'Range', 'Conductance', 'Resistance', 'Extra']
+    
         # Log the first few rows of the dataframe
         logger.debug(f"DataFrame loaded: {df.head()}")
 
@@ -68,7 +71,7 @@ def predict_session():
             return jsonify({'error': f'Expected column "{gsr_col}" not found'}), 400
 
         # Clean the GSR data
-        gsr_series = clean_gsr_data(df, gsr_col)
+        # gsr_series = clean_gsr_data(df, gsr_col)
 
         # Log the cleaned GSR data
         logger.debug(f"Cleaned GSR data: {gsr_series.head()}")
