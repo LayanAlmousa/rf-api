@@ -59,13 +59,13 @@ def predict_session():
         file = request.files['file']
         df = pd.read_csv(file, sep="\t", header=2)
 
-        gsr_series.columns = ['Timestamp', 'Range', 'Conductance', 'Resistance', 'Extra']
+        df.columns = ['Timestamp', 'Range', 'Conductance', 'Resistance', 'Extra']
     
         # Log the first few rows of the dataframe
         logger.debug(f"DataFrame loaded: {df.head()}")
 
         # Use only numeric GSR data from the resistance column
-        gsr_col = 'Shimmer_1875_GSR_Skin_Resistance_CAL'
+        gsr_col = 'Resistance'
         if gsr_col not in df.columns:
             logger.debug(f"Expected column {gsr_col} not found.")
             return jsonify({'error': f'Expected column "{gsr_col}" not found'}), 400
