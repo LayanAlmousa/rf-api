@@ -1,17 +1,11 @@
-import os 
-import requests
-import logging
+import os
+import json
+import tempfile
 import firebase_admin
 from firebase_admin import credentials, firestore
-import pandas as pd
-import joblib  # Used to load the .pkl model
+import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from utils import (
-    preprocess_gsr_dataset,  # Adjusted method name
-    segment_gsr_data,        # Adjusted method name
-    extract_features_matrix_optimized
-)
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
@@ -22,7 +16,15 @@ firebase_key_json = os.getenv('FIREBASE_KEY_JSON')  # Retrieve the Firebase Admi
 if not firebase_key_json:
     raise RuntimeError("❌ FIREBASE_KEY_JSON not set in environment variables")
 
-cred = credentials.Certificate(firebase_key_json)
+# Save the JSON string to a temporary file
+with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+    temp_file.write(firebase_key_json.encode('utf-8'))  # Write the JSON string as bytes
+    temp_file_path = temp_file.name  # Get the file path of the temp file
+
+    logger.info(f"Firebase credentials written to temporary file: {temp_file_path}")
+
+# Initialize Firebase Admin SDK using the temp file
+cred = credentials.Certificate(temp_file_path)
 firebase_admin.initialize_app(cred)
 
 db = firestore.client()  # Firestore client to interact with the database
