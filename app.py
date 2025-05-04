@@ -1,9 +1,10 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pandas as pd
-import numpy as np
 import logging
 import joblib  # Used to load the .pkl model
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 from utils import (
     preprocess_gsr_dataset,  # Adjusted method name
@@ -11,92 +12,85 @@ from utils import (
     extract_features_matrix_optimized
 )
 
-# Set up logging
+# Setup logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+# Firebase Admin SDK initialization
+firebase_key_json = os.getenv('FIREBASE_KEY_JSON')  # Retrieve the Firebase Admin SDK key from environment variables
+if not firebase_key_json:
+    raise RuntimeError("❌ FIREBASE_KEY_JSON not set in environment variables")
+
+cred = credentials.Certificate(firebase_key_json)
+firebase_admin.initialize_app(cred)
+
+db = firestore.client()  # Firestore client to interact with the database
 app = Flask(__name__)
 CORS(app)
 
 # Load the .pkl model (instead of ONNX)
 model = joblib.load('random_forest.pkl')  # Replace this with the path to your .pkl file
 
-
 @app.route('/predict-session', methods=['POST'])
 def predict_session():
     try:
-        # Check if file is uploaded
+        # Ensure file is uploaded
         if 'file' not in request.files:
             logger.debug("No file uploaded.")
             return jsonify({'error': 'No file uploaded'}), 400
 
-        # Read uploaded CSV (tab-separated with a header skip)
         file = request.files['file']
+        if not file:
+            return jsonify({'error': 'Invalid file'}), 400
+
+        # Read the uploaded CSV (tab-separated with a header skip)
         df = pd.read_csv(file, sep="\t", header=2)
 
         # Clean and rename the columns
         df.columns = df.columns.str.strip()
         df.rename(columns={'uS': 'GSR'}, inplace=True)
-    
-        # Log the first few rows of the dataframe
-        logger.debug(f"DataFrame loaded: {df.head()}")
 
-        # Use only numeric GSR data from the 'GSR' column
-        gsr_col = 'GSR'
-        if gsr_col not in df.columns:
-            logger.debug(f"Expected column {gsr_col} not found.")
-            return jsonify({'error': f'Expected column "{gsr_col}" not found'}), 400
-
+        # Process the GSR data
         gsr_signal = df['GSR'].values
-        
-        # Create a dummy DataFrame for input
-        raw_df = pd.DataFrame({
-            'Subject': ['Sample'],
-            'GSR_Data': [pd.Series(gsr_signal)],
-            'Label': ['unknown']
+        logger.debug(f"Processed GSR signal: {gsr_signal[:5]}")
+
+        # Send data to the model for prediction
+        model_response = requests.post(FLASK_MODEL_URL, files={'file': file})
+        if model_response.status_code != 200:
+            return jsonify({"error": "Failed to get prediction from model"}), 500
+
+        model_data = model_response.json()
+        is_anxious = model_data.get("isAnxious", False)
+        stress_probability = model_data.get("stress_probability", 0.0)
+
+        # Extract user_id from the request headers (user authentication)
+        user_id = request.headers.get("user_id")
+
+        if not user_id:
+            return jsonify({'error': 'User ID is required'}), 400
+
+        # Save the prediction results to Firestore under the user's GSR_Sessions subcollection
+        user_ref = db.collection("UserInfo").document(user_id)
+        gsr_session_ref = user_ref.collection("GSR_Sessions").add({
+            "date_uploaded": firestore.SERVER_TIMESTAMP,  # Automatically generate timestamp
+            "file_name": file.filename,
+            "isAnxious": is_anxious,
+            "stress_probability": stress_probability
         })
 
-        # Preprocess (tonic & phasic decomposition)
-        logger.debug("Starting preprocessing of GSR signal.")
-        clean_data = preprocess_gsr_dataset(raw_df, fs=256)
+        logger.info(f"Stored GSR session for user {user_id} with file {file.filename}")
         
-        # Log the preprocessed signal
-        logger.debug(f"Preprocessed data: {clean_data.head()}")
-
-        # Segmentation of the GSR signal into 10-second windows with 5-second overlap
-        logger.debug("Starting segmentation of the GSR signal.")
-        segmented = segment_gsr_data(clean_data, fs=256, window_sec=10.0, overlap_sec=5.0)
-        
-        # Log the segmented data
-        logger.debug(f"Segmented data: {segmented.head()}")
-
-        # Feature extraction
-        logger.debug("Starting feature extraction.")
-        features = extract_features_matrix_optimized(segmented, fs=256)
-        
-        # Log the extracted features before passing to the model
-        logger.debug(f"Extracted features: {features.head()}")
-
-        # Prepare the input tensor (excluding 'Stress' column)
-        X = features.drop(columns=['Stress'])
-        
-        # Log the shape of the input features
-        logger.debug(f"Input features shape: {X.shape}")
-
-        # Run prediction using the .pkl model
-        preds = model.predict(X)  # Use the model's `predict` method
-        probs = model.predict_proba(X)[:, 1]  # Probability of stress
-
-        # Get classification result (0 or 1)
-        classification = 1 if probs[0] > 0.5 else 0  # Use the threshold for stress classification
-
-        logger.debug(f"Classification result: {classification}")
-
-        return jsonify({'classification': classification, 'probability': probs[0]})
+        # Return the prediction result
+        return jsonify({
+            "message": "GSR session processed and results saved",
+            "isAnxious": is_anxious,
+            "stress_probability": stress_probability
+        })
 
     except Exception as e:
-        logger.debug(f"Error occurred: {str(e)}")
+        logger.error(f"Error occurred: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 # For Render
 if __name__ == '__main__':
