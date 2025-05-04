@@ -46,24 +46,38 @@ def predict_session():
 
         file = request.files['file']
         if not file:
+            logger.debug("Invalid file received.")
             return jsonify({'error': 'Invalid file'}), 400
 
         # Read the uploaded CSV (tab-separated with a header skip)
-        df = pd.read_csv(file, sep="\t", header=2)
+        try:
+            df = pd.read_csv(file, sep="\t", header=2)
+        except Exception as e:
+            logger.error(f"Error reading CSV file: {e}")
+            return jsonify({'error': f"Error reading file: {e}"}), 500
 
         # Clean and rename the columns
         df.columns = df.columns.str.strip()
         df.rename(columns={'uS': 'GSR'}, inplace=True)
+
+        # Check if the 'GSR' column exists
+        if 'GSR' not in df.columns:
+            logger.error("GSR column not found in file")
+            return jsonify({'error': 'Expected column "GSR" not found'}), 400
 
         # Process the GSR data
         gsr_signal = df['GSR'].values
         logger.debug(f"Processed GSR signal: {gsr_signal[:5]}")
 
         # Send data to the model for prediction
-        model_response = requests.post(FLASK_MODEL_URL, files={'file': file})
-        if model_response.status_code != 200:
-            return jsonify({"error": "Failed to get prediction from model"}), 500
+        try:
+            model_response = requests.post(FLASK_MODEL_URL, files={'file': file})
+            model_response.raise_for_status()  # Raise error for non-2xx status codes
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error sending data to model: {e}")
+            return jsonify({'error': f"Model request failed: {e}"}), 500
 
+        # Parse the model response
         model_data = model_response.json()
         is_anxious = model_data.get("isAnxious", False)
         stress_probability = model_data.get("stress_probability", 0.0)
@@ -72,6 +86,7 @@ def predict_session():
         user_id = request.headers.get("user_id")
 
         if not user_id:
+            logger.error("User ID is missing from headers")
             return jsonify({'error': 'User ID is required'}), 400
 
         # Save the prediction results to Firestore under the user's GSR_Sessions subcollection
@@ -95,6 +110,7 @@ def predict_session():
     except Exception as e:
         logger.error(f"Error occurred: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 
 # For Render
