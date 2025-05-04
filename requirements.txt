@@ -8,3 +8,4 @@ scikit-learn
 antropy
 joblib
 firebase-admin  
+requests
