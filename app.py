@@ -34,6 +34,9 @@ db = firestore.client()  # Firestore client to interact with the database
 app = Flask(__name__)
 CORS(app)
 
+# Define the model server URL (make sure to use your actual model URL)
+FLASK_MODEL_URL = "https://rf-api.onrender.com/predict-session"  # Replace with your actual Flask App 2 URL
+
 # Load the .pkl model (instead of ONNX)
 model = joblib.load('random_forest.pkl')  # Replace this with the path to your .pkl file
 
@@ -111,7 +114,6 @@ def predict_session():
     except Exception as e:
         logger.error(f"Error occurred: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
 
 
 # For Render
