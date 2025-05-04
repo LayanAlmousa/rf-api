@@ -8,6 +8,7 @@ from firebase_admin import credentials, firestore  # For Firestore integration
 from flask import Flask, request, jsonify  # Flask imports
 from flask_cors import CORS  # For Cross-Origin Resource Sharing (CORS)
 import pandas as pd  # For handling data (e.g., reading CSV files)
+import requests  # To send HTTP requests to the model server
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
