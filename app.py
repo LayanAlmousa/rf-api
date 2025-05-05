@@ -1,114 +1,118 @@
-import os  # For environment variables
-import json  # For handling JSON data
-import tempfile  # For creating temporary files
-import logging  # For logging
-import joblib  # For loading the .pkl model (used to load the random forest model)
-import firebase_admin  # Firebase Admin SDK
-from firebase_admin import credentials, firestore  # For Firestore integration
-from flask import Flask, request, jsonify  # Flask imports
-from flask_cors import CORS  # For Cross-Origin Resource Sharing (CORS)
-import pandas as pd  # For handling data (e.g., reading CSV files)
-import requests  # To send HTTP requests to the model server
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import pandas as pd
+import numpy as np
+import logging
+import joblib
+import os
+import tempfile
 
-# Setup logging
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+from utils import (
+    preprocess_gsr_dataset,
+    segment_gsr_data,
+    extract_features_matrix_optimized
+)
+
+# === Logging Setup ===
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Firebase Admin SDK initialization
-firebase_key_json = os.getenv('FIREBASE_KEY_JSON')  # Retrieve the Firebase Admin SDK key from environment variables
-if not firebase_key_json:
-    raise RuntimeError("❌ FIREBASE_KEY_JSON not set in environment variables")
-
-# Save the JSON string to a temporary file
-with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-    temp_file.write(firebase_key_json.encode('utf-8'))  # Write the JSON string as bytes
-    temp_file_path = temp_file.name  # Get the file path of the temp file
-
-    logger.info(f"Firebase credentials written to temporary file: {temp_file_path}")
-
-# Initialize Firebase Admin SDK using the temp file
-cred = credentials.Certificate(temp_file_path)
-firebase_admin.initialize_app(cred)
-
-db = firestore.client()  # Firestore client to interact with the database
+# === Flask Setup ===
 app = Flask(__name__)
 CORS(app)
 
-# Define the model server URL (make sure to use your actual model URL)
-FLASK_MODEL_URL = "https://rf-api.onrender.com/predict-session"  # Replace with your actual Flask App 2 URL
+# === Firebase Admin Init ===
+firebase_key_json = os.getenv('FIREBASE_KEY_JSON')
+if not firebase_key_json:
+    raise RuntimeError("❌ FIREBASE_KEY_JSON not set in environment variables")
 
-# Load the .pkl model (instead of ONNX)
-model = joblib.load('random_forest.pkl')  # Replace this with the path to your .pkl file
+with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+    temp_file.write(firebase_key_json.encode('utf-8'))
+    temp_file_path = temp_file.name
+    logger.info(f"Firebase credentials written to temporary file: {temp_file_path}")
+
+cred = credentials.Certificate(temp_file_path)
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+# === Load ML Model ===
+model = joblib.load('random_forest.pkl')  # Ensure this path is valid on your server
+
 
 @app.route('/predict-session', methods=['POST'])
 def predict_session():
     try:
-        # Ensure file is uploaded
+        # Step 1: File check
         if 'file' not in request.files:
             logger.debug("No file uploaded.")
             return jsonify({'error': 'No file uploaded'}), 400
 
         file = request.files['file']
-        if not file:
-            logger.debug("Invalid file received.")
-            return jsonify({'error': 'Invalid file'}), 400
+        df = pd.read_csv(file, sep="\t", header=2)
 
-        # Read the uploaded CSV (tab-separated with a header skip)
-        try:
-            df = pd.read_csv(file, sep="\t", header=2)
-        except Exception as e:
-            logger.error(f"Error reading CSV file: {e}")
-            return jsonify({'error': f"Error reading file: {e}"}), 500
-
-        # Clean and rename the columns
+        # Step 2: Clean and parse GSR column
         df.columns = df.columns.str.strip()
         df.rename(columns={'uS': 'GSR'}, inplace=True)
 
-        # Check if the 'GSR' column exists
         if 'GSR' not in df.columns:
-            logger.error("GSR column not found in file")
+            logger.debug("GSR column missing.")
             return jsonify({'error': 'Expected column "GSR" not found'}), 400
 
-        # Process the GSR data
         gsr_signal = df['GSR'].values
-        logger.debug(f"Processed GSR signal: {gsr_signal[:5]}")
 
-        # Send data to the model for prediction
-        try:
-            model_response = requests.post(FLASK_MODEL_URL, files={'file': file})
-            model_response.raise_for_status()  # Raise error for non-2xx status codes
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error sending data to model: {e}")
-            return jsonify({'error': f"Model request failed: {e}"}), 500
-
-        # Parse the model response
-        model_data = model_response.json()
-        is_anxious = model_data.get("isAnxious", False)
-        stress_probability = model_data.get("stress_probability", 0.0)
-
-        # Extract user_id from the request headers (user authentication)
-        user_id = request.headers.get("user_id")
-
-        if not user_id:
-            logger.error("User ID is missing from headers")
-            return jsonify({'error': 'User ID is required'}), 400
-
-        # Save the prediction results to Firestore under the user's GSR_Sessions subcollection
-        user_ref = db.collection("UserInfo").document(user_id)
-        gsr_session_ref = user_ref.collection("GSR_Sessions").add({
-            "date_uploaded": firestore.SERVER_TIMESTAMP,  # Automatically generate timestamp
-            "file_name": file.filename,
-            "isAnxious": is_anxious,
-            "stress_probability": stress_probability
+        raw_df = pd.DataFrame({
+            'Subject': ['Sample'],
+            'GSR_Data': [pd.Series(gsr_signal)],
+            'Label': ['unknown']
         })
 
-        logger.info(f"Stored GSR session for user {user_id} with file {file.filename}")
-        
-        # Return the prediction result
+        # Step 3: Preprocessing
+        logger.debug("Starting preprocessing.")
+        clean_data = preprocess_gsr_dataset(raw_df, fs=256)
+
+        # Step 4: Segmentation
+        logger.debug("Starting segmentation.")
+        segmented = segment_gsr_data(clean_data, fs=256, window_sec=10.0, overlap_sec=5.0)
+
+        # Step 5: Feature extraction
+        logger.debug("Extracting features.")
+        features = extract_features_matrix_optimized(segmented, fs=256)
+        X = features.drop(columns=['Stress'])
+
+        logger.debug(f"Feature shape: {X.shape}")
+
+        # Step 6: Prediction
+        preds = model.predict(X)
+        probs = model.predict_proba(X)[:, 1]
+        classification = 1 if probs[0] > 0.5 else 0
+        probability = float(probs[0])
+
+        logger.debug(f"Prediction: {classification}, Probability: {probability}")
+
+        # Step 7: Store in Firebase
+        user_id = request.headers.get("user_id")
+        if not user_id:
+            logger.error("User ID missing.")
+            return jsonify({'error': 'Missing user ID in headers'}), 400
+
+        user_ref = db.collection("UserInfo").document(user_id)
+        user_ref.collection("GSR_Sessions").add({
+            "date_uploaded": firestore.SERVER_TIMESTAMP,
+            "file_name": file.filename,
+            "isAnxious": bool(classification),
+            "stress_probability": probability
+        })
+
+        logger.info(f"Session stored for user: {user_id}, file: {file.filename}")
+
         return jsonify({
-            "message": "GSR session processed and results saved",
-            "isAnxious": is_anxious,
-            "stress_probability": stress_probability
+            "message": "Prediction and upload successful.",
+            "classification": classification,
+            "probability": probability,
+            "isAnxious": bool(classification)
         })
 
     except Exception as e:
@@ -116,6 +120,5 @@ def predict_session():
         return jsonify({'error': str(e)}), 500
 
 
-# For Render
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=10000)
