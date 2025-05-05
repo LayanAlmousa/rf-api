@@ -93,7 +93,7 @@ def predict_session():
         logger.debug(f"Prediction: {classification}, Probability: {probability}")
 
         # Step 7: Store in Firebase
-        user_id = request.headers.get("user_id")
+        user_id = request.headers.get("uid")
         if not user_id:
             logger.error("User ID missing.")
             return jsonify({'error': 'Missing user ID in headers'}), 400
