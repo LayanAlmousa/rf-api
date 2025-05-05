@@ -39,7 +39,7 @@ firebase_admin.initialize_app(cred)
 db = firestore.client()
 
 # === Load ML Model ===
-model = joblib.load('random_forest.pkl')  # Ensure this path is valid on your server
+model = joblib.load('random_forest.pkl')
 
 
 @app.route('/predict-session', methods=['POST'])
@@ -99,7 +99,19 @@ def predict_session():
             return jsonify({'error': 'Missing user ID in headers'}), 400
 
         user_ref = db.collection("UserInfo").document(user_id)
-        user_ref.collection("GSR_Sessions").add({
+        sessions_ref = user_ref.collection("GSR_Sessions")
+
+        # Check if file with same name already exists
+        existing = sessions_ref.where("file_name", "==", file.filename).limit(1).get()
+        if existing:
+            logger.warning(f"Duplicate file detected: {file.filename}")
+            return jsonify({
+                'error': f'File "{file.filename}" has already been uploaded.',
+                'code': 'DUPLICATE_FILE'
+            }), 409
+
+        # Save new session
+        sessions_ref.add({
             "date_uploaded": firestore.SERVER_TIMESTAMP,
             "file_name": file.filename,
             "isAnxious": bool(classification),
